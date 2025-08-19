@@ -1,9 +1,9 @@
 # pylint: disable=import-outside-toplevel
 
-from typing import Optional, Callable, IO
+from typing import Optional, Callable, IO, Iterator
 
 from unified_planning.engines import Engine, Credits
-from unified_planning.engines.mixins import OneshotPlannerMixin, PlanValidatorMixin
+from unified_planning.engines.mixins import OneshotPlannerMixin, PlanValidatorMixin, AnytimePlannerMixin
 from unified_planning.model import ProblemKind
 
 
@@ -19,7 +19,7 @@ def _on_import_error(e: ImportError) -> ImportError:
     )
 
 
-class NextFLAPPlanner(Engine, OneshotPlannerMixin, PlanValidatorMixin):
+class NextFLAPPlanner(Engine, OneshotPlannerMixin, PlanValidatorMixin, AnytimePlannerMixin):
     """
     NextFLAP planner wrapper for Tyr framework.
 
@@ -31,6 +31,7 @@ class NextFLAPPlanner(Engine, OneshotPlannerMixin, PlanValidatorMixin):
         Engine.__init__(self)
         OneshotPlannerMixin.__init__(self)
         PlanValidatorMixin.__init__(self)
+        AnytimePlannerMixin.__init__(self)
         # Try to import and use the NextFLAP implementation
         try:
             from up_nextflap import NextFLAPImpl
@@ -102,6 +103,22 @@ class NextFLAPPlanner(Engine, OneshotPlannerMixin, PlanValidatorMixin):
         if hasattr(self, "_nextflap_engine"):
             return self._nextflap_engine._validate(problem, plan)
         raise RuntimeError("NextFLAP engine not properly initialized")
+
+    def _get_solutions(
+        self,
+        problem: "up.model.Problem",
+        timeout: Optional[float] = None,
+        output_stream: Optional[IO[str]] = None,
+    ) -> Iterator["up.engines.results.PlanGenerationResult"]:
+        """Get solutions using NextFLAP anytime mode."""
+        if hasattr(self, "_nextflap_engine"):
+            yield from self._nextflap_engine._get_solutions(
+                problem,
+                timeout,
+                output_stream,
+            )
+        else:
+            raise RuntimeError("NextFLAP engine not properly initialized")
 
     def destroy(self):
         """Clean up the NextFLAP engine."""
