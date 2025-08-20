@@ -62,19 +62,39 @@ echo "✅ Found Z3 at: $Z3_PREFIX"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-# Clone up-nextflap repository
-echo "📥 Cloning up-nextflap repository..."
-git clone https://github.com/aiplan4eu/up-nextflap.git
-cd up-nextflap
+# Copy local source to build directory
+echo "📥 Copying local NextFLAP source..."
+LOCAL_SOURCE_DIR="/home/roland/tyr/src/tyr/planners/planners/nextflap/src"
+if [[ ! -d "$LOCAL_SOURCE_DIR" ]]; then
+    echo "❌ Local source directory not found: $LOCAL_SOURCE_DIR"
+    exit 1
+fi
+cp -r "$LOCAL_SOURCE_DIR"/* "$BUILD_DIR/"
+echo "✅ Local source copied successfully"
 
-# Apply patches for compatibility
-echo "🔧 Applying compatibility patches..."
+# Clean any previous build artifacts
+echo "🔧 Cleaning previous build artifacts..."
+cd nextflap
+rm -f *.o *.so 2>/dev/null || true
+echo "✅ Build artifacts cleaned"
 
-# Fix pybind11 include in nextflap.cpp
-sed -i 's/#include <pybind11\.h>/#include <pybind11\/pybind11.h>/' nextflap/nextflap.cpp
+# Check if patches are already applied and apply if needed
+echo "🔧 Checking and applying compatibility patches if needed..."
 
-# Fix getPybindFolder function in setup.py
-cat > nextflap/setup_patch.py << 'EOF'
+# Check if pybind11 include is already fixed
+if grep -q '#include <pybind11\.h>' nextflap.cpp; then
+    echo "📝 Fixing pybind11 include in nextflap.cpp..."
+    sed -i 's/#include <pybind11\.h>/#include <pybind11\/pybind11.h>/' nextflap.cpp
+else
+    echo "✅ pybind11 include already fixed in nextflap.cpp"
+fi
+
+# Check if getPybindFolder function needs fixing
+if grep -A5 'def getPybindFolder():' setup.py | grep -q 'path.append.*pybind11'; then
+    echo "✅ getPybindFolder function already fixed in setup.py"
+else
+    echo "📝 Fixing getPybindFolder function in setup.py..."
+    cat > setup_patch.py << 'EOF'
 def getPybindFolder():
     try:
         import pybind11
@@ -92,21 +112,32 @@ def getPybindFolder():
     return folder
 EOF
 
-# Replace the getPybindFolder function using sed
-# First, mark the start and end of the function to replace
-sed -i '/def getPybindFolder():/,/return folder/c\
-# PLACEHOLDER_FOR_FUNCTION' nextflap/setup.py
+    # Replace the getPybindFolder function using sed
+    sed -i '/def getPybindFolder():/,/return folder/c\
+# PLACEHOLDER_FOR_FUNCTION' setup.py
 
-# Now replace the placeholder with our patched function
-sed -i '/# PLACEHOLDER_FOR_FUNCTION/r nextflap/setup_patch.py' nextflap/setup.py
-sed -i '/# PLACEHOLDER_FOR_FUNCTION/d' nextflap/setup.py
+    # Now replace the placeholder with our patched function
+    sed -i '/# PLACEHOLDER_FOR_FUNCTION/r setup_patch.py' setup.py
+    sed -i '/# PLACEHOLDER_FOR_FUNCTION/d' setup.py
+    rm setup_patch.py
+fi
 
-# Copy up_nextflap.py to nextflap directory
-cp up_nextflap/up_nextflap.py nextflap/
+# Check if up_nextflap.py is already in nextflap directory (our local version should have it)
+if [[ ! -f "up_nextflap.py" ]]; then
+    echo "📝 Copying up_nextflap.py to nextflap directory..."
+    if [[ -f "../up_nextflap/up_nextflap.py" ]]; then
+        cp ../up_nextflap/up_nextflap.py .
+    else
+        echo "❌ up_nextflap.py not found in expected location"
+        exit 1
+    fi
+else
+    echo "✅ up_nextflap.py already present in nextflap directory"
+fi
 
 # Build NextFLAP
 echo "🔨 Building NextFLAP..."
-cd nextflap
+# We're already in the build directory with nextflap source
 
 # Run setup script with Z3 path
 # Setup.py expects Z3 prefix and will look for lib/libz3.so
