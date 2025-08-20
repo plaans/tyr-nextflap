@@ -606,7 +606,13 @@ class NextFLAPImpl(Engine, OneshotPlannerMixin, PlanValidatorMixin):
             plan = self._search(problem, durativePlan)
         else:
             plan = None
-        status = PlanGenerationResultStatus.UNSOLVABLE_INCOMPLETELY if plan is None else PlanGenerationResultStatus.SOLVED_SATISFICING
+        status = (
+            PlanGenerationResultStatus.UNSOLVABLE_INCOMPLETELY
+            if not ok
+            else PlanGenerationResultStatus.TIMEOUT
+            if plan is None
+            else PlanGenerationResultStatus.SOLVED_SATISFICING
+        )
         res = up.engines.PlanGenerationResult(status, plan, self.name)
         return res
 
@@ -1438,7 +1444,7 @@ class NextFLAPImpl(Engine, OneshotPlannerMixin, PlanValidatorMixin):
             solutions = nextflap.solve_anytime(durativePlan)
 
             # Yield each solution as it improves
-            for sol_dict in solutions:
+            for idx, sol_dict in enumerate(solutions):
                 plan_str = sol_dict["plan"]
                 makespan = sol_dict["makespan"]
                 steps = sol_dict["steps"]
@@ -1447,10 +1453,14 @@ class NextFLAPImpl(Engine, OneshotPlannerMixin, PlanValidatorMixin):
                 # Convert to UP plan
                 plan = self._to_nextflap_plan(plan_str, problem, durativePlan)
                 if plan is not None:
-                    # Create result with quality metrics
-                    result = up.engines.PlanGenerationResult(
-                        PlanGenerationResultStatus.SOLVED_SATISFICING, plan, self.name
+                    status = (
+                        PlanGenerationResultStatus.SOLVED_SATISFICING
+                        if idx == len(solutions) - 1
+                        else PlanGenerationResultStatus.INTERMEDIATE
                     )
+
+                    # Create result with quality metrics
+                    result = up.engines.PlanGenerationResult(status, plan, self.name)
 
                     # Add the computation time
                     result.metrics = {"engine_internal_time": elapsed_time}
@@ -1460,7 +1470,7 @@ class NextFLAPImpl(Engine, OneshotPlannerMixin, PlanValidatorMixin):
             # If no solutions were found
             if not solutions:
                 yield up.engines.PlanGenerationResult(
-                    PlanGenerationResultStatus.UNSOLVABLE_INCOMPLETELY, None, self.name
+                    PlanGenerationResultStatus.TIMEOUT, None, self.name
                 )
 
         finally:
