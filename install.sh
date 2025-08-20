@@ -18,8 +18,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Check if we're in a virtual environment
-if [[ -z "${VIRTUAL_ENV}" && -z "${CONDA_DEFAULT_ENV}" ]]; then
+# Check if we're in a virtual environment (skip prompt in containers)
+if [[ -z "${VIRTUAL_ENV}" && -z "${CONDA_DEFAULT_ENV}" && -z "${APPTAINER_CONTAINER}" ]]; then
     echo "⚠️  Warning: Not in a virtual environment. Consider activating one first."
     read -p "Continue anyway? (y/N): " -n 1 -r
     echo
@@ -48,15 +48,29 @@ if ! command -v g++ &> /dev/null; then
 fi
 
 # Check for Z3
-if ! pkg-config --exists z3; then
-    echo "❌ Z3 development libraries not found."
-    echo "   Ubuntu/Debian: sudo apt install libz3-dev"
-    echo "   CentOS/RHEL: sudo yum install z3-devel"
-    exit 1
+Z3_PREFIX=""
+if pkg-config --exists z3; then
+    Z3_PREFIX=$(pkg-config --variable=prefix z3)
+    echo "✅ Found Z3 at: $Z3_PREFIX (via pkg-config)"
+else
+    # Fallback: check for Z3 headers and libraries directly
+    echo "📋 pkg-config not found for Z3, checking directly..."
+    if [[ -f "/usr/local/include/z3.h" && -f "/usr/local/lib/libz3.so" ]]; then
+        Z3_PREFIX="/usr/local"
+        echo "✅ Found Z3 at: $Z3_PREFIX (source build)"
+        # Set PKG_CONFIG_PATH for this session
+        export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
+    elif [[ -f "/usr/include/z3.h" && -f "/usr/lib/x86_64-linux-gnu/libz3.so" ]]; then
+        Z3_PREFIX="/usr"
+        echo "✅ Found Z3 at: $Z3_PREFIX (system package)"
+    else
+        echo "❌ Z3 development libraries not found."
+        echo "   Ubuntu/Debian: sudo apt install libz3-dev"
+        echo "   CentOS/RHEL: sudo yum install z3-devel"
+        echo "   Or build Z3 from source"
+        exit 1
+    fi
 fi
-
-Z3_PREFIX=$(pkg-config --variable=prefix z3)
-echo "✅ Found Z3 at: $Z3_PREFIX"
 
 # Create build directory
 mkdir -p "$BUILD_DIR"
@@ -64,7 +78,7 @@ cd "$BUILD_DIR"
 
 # Copy local source to build directory
 echo "📥 Copying local NextFLAP source..."
-LOCAL_SOURCE_DIR="/home/roland/tyr/src/tyr/planners/planners/nextflap/src"
+LOCAL_SOURCE_DIR="$SCRIPT_DIR/src"
 if [[ ! -d "$LOCAL_SOURCE_DIR" ]]; then
     echo "❌ Local source directory not found: $LOCAL_SOURCE_DIR"
     exit 1
